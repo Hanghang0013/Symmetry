@@ -1,0 +1,156 @@
+use std::collections::HashSet;
+
+#[derive(Debug)]
+enum PointGroup {
+    Cn(u32),
+    Dn(u32),
+    Sn(u32),
+    T,
+    O,
+    I,
+    Other,
+}
+
+// 结合对称性判断来分类分子
+fn classify_molecule(atomic_coordinates: &[(f64, f64, f64)]) -> PointGroup {
+    let rotation_order = identify_rotation_axis(atomic_coordinates);
+    let has_plane = has_symmetry_plane(atomic_coordinates);
+    let has_center = has_symmetry_center(atomic_coordinates);
+
+    // 根据对称特征进行分类
+    if let Some(order) = rotation_order {
+        if has_center {
+            return PointGroup::I; // 如果有对称中心
+        }
+        if has_plane {
+            return PointGroup::Dn(order); // 如果有对称面
+        }
+        return PointGroup::Cn(order); // 仅有对称轴
+    }
+
+    if is_tetrahedral(atomic_coordinates) {
+        return PointGroup::T; // 四面体
+    }
+
+    if is_octahedral(atomic_coordinates) {
+        return PointGroup::O; // 八面体
+    }
+
+    PointGroup::Other // 其他情况
+}
+
+//判断分子的对称轴重数
+fn identify_rotation_axis(coords: &[(f64, f64, f64)]) -> Option<u32> {
+    if coords.len() < 2 {
+        return None;
+    }
+
+    let mut distinct_positions = HashSet::new();
+
+    for &coord in coords {
+        let (x, y, _) = coord;
+        let angle = (y / x).atan2(y);
+        let normalized_angle = angle % (std::f64::consts::PI * 2.0); // 标准化角度到[0, 2π]
+        distinct_positions.insert(normalized_angle.to_bits());
+    }
+    // 根据不同的角度数量判断重数
+    let unique_angles = distinct_positions.len();
+    if unique_angles == 0 {
+        return None;
+    }
+
+    Some(unique_angles as u32)
+}
+
+// 判断是否存在对称面
+fn has_symmetry_plane(coords: &[(f64, f64, f64)]) -> bool {
+    if coords.len() < 4 {
+        return false;
+    }
+    
+    let average_x = coords.iter().map(|c| c.0).sum::<f64>() / coords.len() as f64;
+    let average_y = coords.iter().map(|c| c.1).sum::<f64>() / coords.len() as f64;
+    let average_z = coords.iter().map(|c| c.2).sum::<f64>() / coords.len() as f64;
+
+    
+    coords.iter().all(|&(x, y, z)| {
+        (x - average_x).abs() == (average_x - x).abs()&&// 判断是否关于X=average_x对称
+        (y - average_y).abs() == (average_y - y).abs()&&
+        (z - average_z).abs() == (average_z - z).abs()
+    })
+}
+
+// 判断是否存在对称中心
+fn has_symmetry_center(coords: &[(f64, f64, f64)]) -> bool {
+    if coords.is_empty() {
+        return false;
+    }
+    
+    let center = (
+        coords.iter().map(|c| c.0).sum::<f64>() / coords.len() as f64,
+        coords.iter().map(|c| c.1).sum::<f64>() / coords.len() as f64,
+        coords.iter().map(|c| c.2).sum::<f64>() / coords.len() as f64,
+    );
+
+    coords.iter().all(|&c| {
+        let dx = c.0 - center.0;
+        let dy = c.1 - center.1;
+        let dz = c.2 - center.2;
+        (c.0, c.1, c.2) == (center.0 - dx, center.1 - dy, center.2 - dz) // 判断是否关于中心对称
+    })
+}
+
+// 四面体对称性的判断
+fn is_tetrahedral(coords: &[(f64, f64, f64)]) -> bool {
+    if coords.len() != 4 {
+        return false; // 必须是四个原子
+    }
+
+    let dists: Vec<f64> = (0..coords.len()).flat_map(|i| {
+            (i + 1..coords.len()).map(move |j| {
+                let dx = coords[i].0 - coords[j].0;
+                let dy = coords[i].1 - coords[j].1;
+                let dz = coords[i].2 - coords[j].2;
+                (dx * dx + dy * dy + dz * dz).sqrt() // 计算距离
+            })
+        })
+        .collect();
+
+    // 检查是否所有距离相同
+    let first_distance = dists[0];
+    dists.iter().all(|&d| (d - first_distance).abs() < 1e-6)
+}
+
+//八面体对称性的判断
+fn is_octahedral(coords: &[(f64, f64, f64)]) -> bool {
+    if coords.len() != 6 {
+        return false; // 必须是六个原子
+    }
+
+    let center = (0.0, 0.0, 0.0);
+    
+    // 计算与中心的距离
+
+    let distances: HashSet<u64> = coords.iter().map(|&(x, y, z)| {
+        let dx = x - center.0;
+        let dy = y - center.1;
+        let dz = z - center.2;
+        (dx * dx + dy * dy + dz * dz).sqrt() .to_bits() // 计算距离
+    }).collect();
+    // 检查距离值
+    distances.len() == 2 
+}
+
+fn main() {
+    let atomic_coordinates = vec![
+        (1.0, 0.0, 0.0),
+        (0.0, 0.0, 0.0),
+        (0.0, 0.0, 1.0),
+        (-1.0, 0.0, 0.0),
+        (0.0, -1.0, 0.0),
+        (0.0, 0.0, -1.0),
+    ];
+
+    let point_group = classify_molecule(&atomic_coordinates);
+    println!("{:?}", point_group);
+}

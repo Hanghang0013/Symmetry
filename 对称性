@@ -1,109 +1,88 @@
 use std::collections::HashSet;
 
 #[derive(Debug)]
+struct Atom {
+    element: String,
+    coordinates: (f64, f64, f64),
+}
+
+
+#[derive(Debug)]
 enum PointGroup {
     Cn(u32),
     Dn(u32),
     Sn(u32),
     T,
     O,
-    I,
     Other,
 }
 
-// 结合对称性判断来分类分子
-fn classify_molecule(atomic_coordinates: &[(f64, f64, f64)]) -> PointGroup {
-    let rotation_order = identify_rotation_axis(atomic_coordinates);
-    let has_plane = has_symmetry_plane(atomic_coordinates);
-    let has_center = has_symmetry_center(atomic_coordinates);
+fn classify_molecule(atoms: &[Atom]) -> PointGroup {
+    let atomic_coordinates: Vec<_> = atoms.iter().map(|atom| atom.coordinates).collect();
+    let is_tetrahedral: bool = is_symmetry_tetrahedral(&atomic_coordinates);
+    let is_octahedral: bool = is_symmetry_octahedral(&atomic_coordinates);
 
-    // 根据对称特征进行分类
+// 对于八面体
+if is_octahedral {
+    let has_center = has_symmetry_center(&atomic_coordinates);
+    let has_plane = has_symmetry_plane(&atomic_coordinates);
+    let rotation_order = identify_rotation_axis(&atomic_coordinates);
+
+    if has_center && has_plane && rotation_order == Some(4) {
+        println!("Detected octahedral structure with center and 4-fold axis");
+        return PointGroup::O; // 八面体
+    } else if has_center {
+        println!("Detected octahedral structure with center");
+        return PointGroup::O; // 八面体
+    } else if has_plane {
+        println!("Detected octahedral structure with plane");
+        return PointGroup::O; // 八面体
+    }
+}
+
+// 对于四面体
+if is_tetrahedral {
+    let has_center = has_symmetry_center(&atomic_coordinates);
+    let has_plane = has_symmetry_plane(&atomic_coordinates);
+    let rotation_order = identify_rotation_axis(&atomic_coordinates);
+
+    if has_center && rotation_order == Some(3) {
+        println!("Detected tetrahedral structure with center and 3-fold axis");
+        return PointGroup::T; // 四面体
+    } else if has_center {
+        println!("Detected tetrahedral structure with center");
+        return PointGroup::T; // 四面体
+    } else if has_plane {
+        println!("Detected tetrahedral structure with plane");
+        return PointGroup::T; // 四面体
+    }
+}
+
+    let rotation_order: Option<u32> = identify_rotation_axis(&atomic_coordinates);
+    let has_plane: bool = has_symmetry_plane(&atomic_coordinates);
+    let has_center: bool = has_symmetry_center(&atomic_coordinates);
+
+    println!("Rotation order: {:?}", rotation_order);
+    println!("Has symmetry plane: {}", has_plane);
+    println!("Has symmetry center: {}", has_center);
+
     if let Some(order) = rotation_order {
         if has_center {
-            return PointGroup::I; // 如果有对称中心
-        }
+            return PointGroup::Sn(order); // 如果有对称中心，返回 Sn 点群
+        } 
         if has_plane {
             return PointGroup::Dn(order); // 如果有对称面
         }
         return PointGroup::Cn(order); // 仅有对称轴
     }
-
-    if is_tetrahedral(atomic_coordinates) {
-        return PointGroup::T; // 四面体
-    }
-
-    if is_octahedral(atomic_coordinates) {
-        return PointGroup::O; // 八面体
-    }
-
-    PointGroup::Other // 其他情况
-}
-
-//判断分子的对称轴重数
-fn identify_rotation_axis(coords: &[(f64, f64, f64)]) -> Option<u32> {
-    if coords.len() < 2 {
-        return None;
-    }
-
-    let mut distinct_positions = HashSet::new();
-
-    for &coord in coords {
-        let (x, y, _) = coord;
-        let angle = (y / x).atan2(y);
-        let normalized_angle = angle % (std::f64::consts::PI * 2.0); // 标准化角度到[0, 2π]
-        distinct_positions.insert(normalized_angle.to_bits());
-    }
-    // 根据不同的角度数量判断重数
-    let unique_angles = distinct_positions.len();
-    if unique_angles == 0 {
-        return None;
-    }
-
-    Some(unique_angles as u32)
-}
-
-// 判断是否存在对称面
-fn has_symmetry_plane(coords: &[(f64, f64, f64)]) -> bool {
-    if coords.len() < 4 {
-        return false;
-    }
     
-    let average_x = coords.iter().map(|c| c.0).sum::<f64>() / coords.len() as f64;
-    let average_y = coords.iter().map(|c| c.1).sum::<f64>() / coords.len() as f64;
-    let average_z = coords.iter().map(|c| c.2).sum::<f64>() / coords.len() as f64;
-
-    
-    coords.iter().all(|&(x, y, z)| {
-        (x - average_x).abs() == (average_x - x).abs()&&// 判断是否关于X=average_x对称
-        (y - average_y).abs() == (average_y - y).abs()&&
-        (z - average_z).abs() == (average_z - z).abs()
-    })
-}
-
-// 判断是否存在对称中心
-fn has_symmetry_center(coords: &[(f64, f64, f64)]) -> bool {
-    if coords.is_empty() {
-        return false;
-    }
-    
-    let center = (
-        coords.iter().map(|c| c.0).sum::<f64>() / coords.len() as f64,
-        coords.iter().map(|c| c.1).sum::<f64>() / coords.len() as f64,
-        coords.iter().map(|c| c.2).sum::<f64>() / coords.len() as f64,
-    );
-
-    coords.iter().all(|&c| {
-        let dx = c.0 - center.0;
-        let dy = c.1 - center.1;
-        let dz = c.2 - center.2;
-        (c.0, c.1, c.2) == (center.0 - dx, center.1 - dy, center.2 - dz) // 判断是否关于中心对称
-    })
+    PointGroup::Other 
 }
 
 // 四面体对称性的判断
-fn is_tetrahedral(coords: &[(f64, f64, f64)]) -> bool {
+fn is_symmetry_tetrahedral(coords: &[(f64, f64, f64)]) -> bool {
     if coords.len() != 4 {
-        return false; // 必须是四个原子
+        return false; 
     }
 
     let dists: Vec<f64> = (0..coords.len()).flat_map(|i| {
@@ -122,35 +101,169 @@ fn is_tetrahedral(coords: &[(f64, f64, f64)]) -> bool {
 }
 
 //八面体对称性的判断
-fn is_octahedral(coords: &[(f64, f64, f64)]) -> bool {
+fn is_symmetry_octahedral(coords: &[(f64, f64, f64)]) -> bool {
     if coords.len() != 6 {
-        return false; // 必须是六个原子
+        return false; 
     }
-
-    let center = (0.0, 0.0, 0.0);
-    
-    // 计算与中心的距离
-
-    let distances: HashSet<u64> = coords.iter().map(|&(x, y, z)| {
-        let dx = x - center.0;
-        let dy = y - center.1;
-        let dz = z - center.2;
-        (dx * dx + dy * dy + dz * dz).sqrt() .to_bits() // 计算距离
+    // 计算所有十五个原子对之间的距离
+    let mut distances: Vec<f64> = (0..coords.len()).flat_map(|i| {
+        (i + 1..coords.len()).map(move |j| {
+            let dx = coords[i].0 - coords[j].0;
+            let dy = coords[i].1 - coords[j].1;
+            let dz = coords[i].2 - coords[j].2;
+            (dx * dx + dy * dy + dz * dz).sqrt() // 计算距离
+        })
     }).collect();
-    // 检查距离值
-    distances.len() == 2 
+    distances.sort_by(|a, b| a.partial_cmp(b).unwrap());  
+  
+
+    // 统计每种距离的出现次数
+    let mut count_map = std::collections::HashMap::new();
+    for &d in &distances {
+        let key = format!("{:.6}", d); // 保留六位小数
+        *count_map.entry(key).or_insert(0) += 1;
+    }
+    // 检查距离的数量和出现次数
+    let counts: Vec<_> = count_map.values().cloned().collect();
+    // 需要有两种不同的距离：6个和12个
+    counts.len() == 2 && counts.contains(&12) && counts.contains(&3)
 }
 
+
+//判断分子的对称轴重数
+fn identify_rotation_axis(coords: &[(f64, f64, f64)]) -> Option<u32> {
+    if coords.len() < 2 {
+        return None;
+    }
+
+    let mut unique_orders = HashSet::new();
+    let n = coords.len();
+
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let (x1, y1, z1) = coords[i];
+            let (x2, y2, z2) = coords[j];
+
+            // 计算旋转轴的单位向量
+            let axis = (
+                x2 - x1,
+                y2 - y1,
+                z2 - z1,
+            );
+
+            let length = (axis.0.powi(2) + axis.1.powi(2) + axis.2.powi(2)).sqrt();
+            let _normalized_axis = (
+                axis.0 / length,
+                axis.1 / length,
+                axis.2 / length,
+            );
+
+            // 检查可能的n
+            for angle in 1..n as u32{
+                let theta = (360.0 / angle as f64).to_radians();
+                let cos_theta = theta.cos();
+                let sin_theta = theta.sin();
+
+                // 旋转每个原子并检查是否保持一致
+                let mut count = 0;
+
+                for &(x, y, z) in coords {
+                    let rotated_x = cos_theta * (x - x1) - sin_theta * (y - y1) + x1;
+                    let rotated_y = sin_theta * (x - x1) + cos_theta * (y - y1) + y1;
+                    let rotated_z = z; // 假设旋转只在xy平面
+
+                    if coords.iter().any(|&(rx, ry, rz)| (rx - rotated_x).abs() < 1e-6 && (ry - rotated_y).abs() < 1e-6 && (rz - rotated_z).abs() < 1e-6) {
+                        count += 1;
+                    }
+                }
+
+                if count == n {
+                    unique_orders.insert(angle);
+                }
+            }
+        }
+    }
+
+    Some(*unique_orders.iter().max().unwrap_or(&1))
+}
+
+// 判断是否存在对称面
+fn has_symmetry_plane(coords: &[(f64, f64, f64)]) -> bool {
+    if coords.len() < 4 {
+        return false;
+    }
+
+// 检查 x-y 面
+let xy_plane = coords.iter().all(|&(x, y, z)| {
+    let reflected_z = -z; 
+    coords.iter().any(|&(rx, ry, rz)| {
+        (rx - x).abs() < 1e-6 && 
+        (ry - y).abs() < 1e-6 && 
+        (rz - reflected_z).abs() < 1e-6
+    })
+});
+
+// 检查 x-z 面
+let xz_plane = coords.iter().all(|&(x, y, z)| {
+    let reflected_y = -y; 
+    coords.iter().any(|&(rx, ry, rz)| {
+        (rx - x).abs() < 1e-6 && 
+        (ry - reflected_y).abs() < 1e-6 && 
+        (rz - z).abs() < 1e-6
+    })
+});
+
+// 检查 y-z 面
+let yz_plane = coords.iter().all(|&(x, y, z)| {
+    let reflected_x = -x; 
+    coords.iter().any(|&(rx, ry, rz)| {
+        (rx - reflected_x).abs() < 1e-6 && 
+        (ry - y).abs() < 1e-6 && (rz - z).abs() < 1e-6
+    })
+});
+
+xy_plane || xz_plane || yz_plane
+}
+
+
+
+// 判断是否存在对称中心
+fn has_symmetry_center(coords: &[(f64, f64, f64)]) -> bool {
+    if coords.is_empty() {
+        return false;
+    }
+    
+    let center = (
+        coords.iter().map(|c| c.0).sum::<f64>() / coords.len() as f64,
+        coords.iter().map(|c| c.1).sum::<f64>() / coords.len() as f64,
+        coords.iter().map(|c| c.2).sum::<f64>() / coords.len() as f64,
+    );
+ 
+    coords.iter().all(|&c| {
+        let reflected = (
+            c.0 - 2.0 * center.0,
+            c.1 - 2.0 * center.1,
+            c.2 - 2.0 * center.2,
+        );
+        
+        (reflected.0 - c.0).abs() < 1e-6 && 
+        (reflected.1 - c.1).abs() < 1e-6 && 
+        (reflected.2 - c.2).abs() < 1e-6
+    })    
+    
+}
+
+
 fn main() {
-    let atomic_coordinates = vec![
-        (1.0, 0.0, 0.0),
-        (0.0, 0.0, 0.0),
-        (0.0, 0.0, 1.0),
-        (-1.0, 0.0, 0.0),
-        (0.0, -1.0, 0.0),
-        (0.0, 0.0, -1.0),
+    let atoms = vec![
+        Atom { element: "H".to_string(), coordinates: (1.0, 0.0, 0.0) },
+        Atom { element: "H".to_string(), coordinates: (-1.0, 0.0, 0.0) },
+        Atom { element: "H".to_string(), coordinates: (0.0, 1.0, 0.0) },
+        Atom { element: "H".to_string(), coordinates: (0.0, -1.0, 0.0) },
+        Atom { element: "O".to_string(), coordinates: (0.0, 0.0, 1.0) },
+        Atom { element: "O".to_string(), coordinates: (0.0, 0.0, -1.0) },
     ];
 
-    let point_group = classify_molecule(&atomic_coordinates);
+    let point_group = classify_molecule(&atoms);
     println!("{:?}", point_group);
 }

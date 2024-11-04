@@ -1,11 +1,11 @@
 use std::collections::HashSet;
+use std::collections::HashMap;
 
 #[derive(Debug)]
 struct Atom {
     element: String,
     coordinates: (f64, f64, f64),
 }
-
 
 #[derive(Debug)]
 enum PointGroup {
@@ -17,66 +17,53 @@ enum PointGroup {
     Other,
 }
 
+fn group_atoms_by_element(atoms: &[Atom]) -> HashMap<String, Vec<(String, (f64, f64, f64))>> {
+    let mut groups = HashMap::new();
+    for atom in atoms {
+        groups.entry(atom.element.clone())
+            .or_insert_with(Vec::new)
+            .push((atom.element.clone(), atom.coordinates));
+    }
+    groups
+}
+
 fn classify_molecule(atoms: &[Atom]) -> PointGroup {
-    let atomic_coordinates: Vec<_> = atoms.iter().map(|atom| atom.coordinates).collect();
-    let is_tetrahedral: bool = is_symmetry_tetrahedral(&atomic_coordinates);
-    let is_octahedral: bool = is_symmetry_octahedral(&atomic_coordinates);
+    let element_groups = group_atoms_by_element(atoms);
+    let mut detected_groups:Vec<(String, PointGroup)> = Vec::new();
 
-// 对于八面体
-if is_octahedral {
-    let has_center = has_symmetry_center(&atomic_coordinates);
-    let has_plane = has_symmetry_plane(&atomic_coordinates);
-    let rotation_order = identify_rotation_axis(&atomic_coordinates);
-
-    if has_center && has_plane && rotation_order == Some(4) {
-        println!("Detected octahedral structure with center and 4-fold axis");
-        return PointGroup::O; // 八面体
-    } else if has_center {
-        println!("Detected octahedral structure with center");
-        return PointGroup::O; // 八面体
-    } else if has_plane {
-        println!("Detected octahedral structure with plane");
-        return PointGroup::O; // 八面体
+    for (element, group) in &element_groups {
+        let atomic_coordinates: Vec<_> = group.iter().map(|(_, coord)| *coord).collect();
+        if let Some(point_group) = check_symmetry(&atomic_coordinates) {
+            detected_groups.push((element.clone(), point_group));
+        }
     }
+
+    detected_groups.into_iter().next().map_or(PointGroup::Other, |(_, pg)| pg)
 }
 
-// 对于四面体
-if is_tetrahedral {
-    let has_center = has_symmetry_center(&atomic_coordinates);
-    let has_plane = has_symmetry_plane(&atomic_coordinates);
-    let rotation_order = identify_rotation_axis(&atomic_coordinates);
-
-    if has_center && rotation_order == Some(3) {
-        println!("Detected tetrahedral structure with center and 3-fold axis");
-        return PointGroup::T; // 四面体
-    } else if has_center {
-        println!("Detected tetrahedral structure with center");
-        return PointGroup::T; // 四面体
-    } else if has_plane {
-        println!("Detected tetrahedral structure with plane");
-        return PointGroup::T; // 四面体
+fn check_symmetry(coords: &[(f64, f64, f64)]) -> Option<PointGroup> {
+    if is_symmetry_tetrahedral(coords) {
+        return Some(PointGroup::T);
     }
-}
+    if is_symmetry_octahedral(coords) {
+        return Some(PointGroup::O);
+    }
 
-    let rotation_order: Option<u32> = identify_rotation_axis(&atomic_coordinates);
-    let has_plane: bool = has_symmetry_plane(&atomic_coordinates);
-    let has_center: bool = has_symmetry_center(&atomic_coordinates);
-
-    println!("Rotation order: {:?}", rotation_order);
-    println!("Has symmetry plane: {}", has_plane);
-    println!("Has symmetry center: {}", has_center);
+    let rotation_order = identify_rotation_axis(coords);
+    let has_plane = has_symmetry_plane(coords);
+    let has_center = has_symmetry_center(coords);
 
     if let Some(order) = rotation_order {
         if has_center {
-            return PointGroup::Sn(order); // 如果有对称中心，返回 Sn 点群
-        } 
-        if has_plane {
-            return PointGroup::Dn(order); // 如果有对称面
+            return Some(PointGroup::Sn(order));
         }
-        return PointGroup::Cn(order); // 仅有对称轴
+        if has_plane {
+            return Some(PointGroup::Dn(order));
+        }
+        return Some(PointGroup::Cn(order));
     }
-    
-    PointGroup::Other 
+
+    None
 }
 
 // 四面体对称性的判断
